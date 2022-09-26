@@ -120,14 +120,6 @@
             resize
           }"
         >
-          <toolbar
-            :prefixCls="prefixCls"
-            :zoomIn="zoomIn"
-            :zoomOut="zoomOut"
-            :rotateLeft="rotateLeft"
-            :rotateRight="rotateRight"
-            :resize="resize"
-          />
         </slot>
       </div>
     </div>
@@ -630,10 +622,10 @@
   .#{$prefix-cls}-modal {
     z-index: 9998;
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 35%;
+    left: 35%;
+    right: 35%;
+    bottom: 35%;
     margin: 0;
     background: rgba(0, 0, 0, 0.5);
   }
@@ -651,8 +643,8 @@
 
   .#{$prefix-cls}-img {
     user-select: none;
-    max-width: 80vw;
-    max-height: 80vh;
+    max-width: 40vw;
+    max-height: 40vh;
     display: block;
     position: relative;
     transition: transform 0.3s ease-in-out;
@@ -660,8 +652,8 @@
     background-color: rgba(0, 0, 0, 0.7);
 
     @media (max-width: 750px) {
-      max-width: 85vw;
-      max-height: 95vh;
+      max-width: 55vw;
+      max-height: 55vh;
     }
   }
 
@@ -675,7 +667,7 @@
       top: 50%;
       transform: translateY(-50%);
       cursor: pointer;
-      opacity: 0.6;
+      opacity: 1;
       font-size: 32px;
       color: #fff;
       transition: 0.15s linear;

@@ -16,7 +16,7 @@
           v-if="loading"
           name="loading"
         >
-          <img-loading />
+          <img-loading/>
         </slot>
 
         <!-- error-slot -->
@@ -24,7 +24,7 @@
           v-if="loadError"
           name="onerror"
         >
-          <img-on-error />
+          <img-on-error/>
         </slot>
 
         <!-- img-wrapper -->
@@ -61,7 +61,7 @@
       />
 
       <!-- btns -->
-      <div :class="`${prefixCls}-btns-wrapper`">
+      <div ref="btnsWrapper" :class="`${prefixCls}-btns-wrapper`">
         <slot
           name="prev-btn"
           :prev="onPrevClick"
@@ -69,10 +69,11 @@
           <div
             v-if="imgList.length > 1"
             class="btn__prev"
+            ref="btn__prev"
             :class="{ disable: !loop && imgIndex <= 0 }"
             @click="onPrevClick"
           >
-            <svg-icon type="prev" />
+            <svg-icon type="prev"/>
           </div>
         </slot>
 
@@ -83,10 +84,11 @@
           <div
             v-if="imgList.length > 1"
             class="btn__next"
+            ref="btn__next"
             :class="{ disable: !loop && imgIndex >= imgList.length - 1 }"
             @click="onNextClick"
           >
-            <svg-icon type="next" />
+            <svg-icon type="next"/>
           </div>
         </slot>
 
@@ -96,9 +98,10 @@
         >
           <div
             class="btn__close"
+            ref="btn__close"
             @click="closeDialog"
           >
-            <svg-icon type="close" />
+            <svg-icon type="close"/>
           </div>
         </slot>
 
@@ -127,588 +130,664 @@
 </template>
 
 <script lang="ts">
-  import { Component, Prop, Watch, Vue } from 'vue-property-decorator'
-  import './assets/svg/iconfont'
-  import SvgIcon from './components/svg-icon.vue'
-  import Toolbar from './components/toolbar.vue'
-  import ImgLoading from './components/img-loading.vue'
-  import ImgOnError from './components/img-on-error.vue'
-  import ImgTitle from './components/img-title.vue'
-  import { prefixCls } from './constant'
-  import { on, off, isArray, isObject, isString, notEmpty } from './utils/index'
+import { Component, Prop, Watch, Vue } from 'vue-property-decorator'
+import './assets/svg/iconfont'
+import SvgIcon from './components/svg-icon.vue'
+import Toolbar from './components/toolbar.vue'
+import ImgLoading from './components/img-loading.vue'
+import ImgOnError from './components/img-on-error.vue'
+import ImgTitle from './components/img-title.vue'
+import { prefixCls } from './constant'
+import { on, off, isArray, isObject, isString, notEmpty } from './utils/index'
 
-  interface Img {
-    src?: string
-    title?: string
-    alt?: string
+interface Img {
+  src?: string
+  title?: string
+  alt?: string
+}
+
+type IndexChangeAction =
+  | 'on-prev'
+  | 'on-next'
+  | 'on-prev-click'
+  | 'on-next-click'
+type IndexChangeActions = IndexChangeAction | IndexChangeAction[]
+
+function isImg(arg: Img): arg is Img {
+  return isObject(arg) && isString(arg.src)
+}
+
+@Component({
+  name: 'vue-easy-lightbox',
+  components: {
+    SvgIcon,
+    Toolbar,
+    ImgLoading,
+    ImgOnError,
+    ImgTitle
   }
+})
+export default class VueEasyLightbox extends Vue {
+  @Prop({
+    type: [Array, String],
+    default: () => ''
+  }) readonly imgs!:
+    | string
+    | Img
+    | (Img | string)[]
 
-  type IndexChangeAction =
-    | 'on-prev'
-    | 'on-next'
-    | 'on-prev-click'
-    | 'on-next-click'
-  type IndexChangeActions = IndexChangeAction | IndexChangeAction[]
+  @Prop({
+    type: Boolean,
+    default: false
+  }) readonly visible!: boolean
+  @Prop({
+    type: Number,
+    default: 0
+  }) readonly index!: number
+  @Prop({
+    type: Boolean,
+    default: false
+  }) readonly escDisabled!: boolean
+  @Prop({
+    type: Boolean,
+    default: false
+  }) readonly moveDisabled!: boolean
+  @Prop({
+    type: Boolean,
+    default: false
+  }) readonly titleDisabled!: boolean
+  @Prop({
+    type: Boolean,
+    default: false
+  }) readonly loop!: boolean
+  @Prop({
+    type: Boolean,
+    default: true
+  }) readonly scrollDisabled!: boolean
+  @Prop({
+    type: Boolean,
+    default: true
+  }) readonly maskClosable!: boolean
 
-  function isImg(arg: Img): arg is Img {
-    return isObject(arg) && isString(arg.src)
+  prefixCls = prefixCls
+  scale = 1
+  lastScale = 1
+  rotateDeg = 0
+  imgIndex = 0
+  top = 0
+  left = 0
+  lastX = 0
+  lastY = 0
+  isDraging = false
+  loading = false
+  loadError = false
+  isTicking = false
+  isGesturing = false
+  wheeling = false
+  lastBodyStyleOverflowY = ''
+  imgBaseInfo = {
+    width: 0,
+    height: 0,
+    maxScale: 1,
+    rect: new DOMRect(),
+    top: 0,
+    left: 0
   }
+  touches: TouchList | [] = []
+  rafId: number = 0
 
-  @Component({
-    name: 'vue-easy-lightbox',
-    components: {
-      SvgIcon,
-      Toolbar,
-      ImgLoading,
-      ImgOnError,
-      ImgTitle
-    }
-  })
-  export default class VueEasyLightbox extends Vue {
-    @Prop({ type: [Array, String], default: () => '' }) readonly imgs!:
-      | string
-      | Img
-      | (Img | string)[]
-
-    @Prop({ type: Boolean, default: false }) readonly visible!: boolean
-    @Prop({ type: Number, default: 0 }) readonly index!: number
-    @Prop({ type: Boolean, default: false }) readonly escDisabled!: boolean
-    @Prop({ type: Boolean, default: false }) readonly moveDisabled!: boolean
-    @Prop({ type: Boolean, default: false }) readonly titleDisabled!: boolean
-    @Prop({ type: Boolean, default: false }) readonly loop!: boolean
-    @Prop({ type: Boolean, default: true }) readonly scrollDisabled!: boolean
-    @Prop({ type: Boolean, default: true }) readonly maskClosable!: boolean
-
-    prefixCls = prefixCls
-    scale = 1
-    lastScale = 1
-    rotateDeg = 0
-    imgIndex = 0
-    top = 0
-    left = 0
-    lastX = 0
-    lastY = 0
-    isDraging = false
-    loading = false
-    loadError = false
-    isTicking = false
-    isGesturing = false
-    wheeling = false
-    lastBodyStyleOverflowY = ''
-    imgBaseInfo = {
-      width: 0,
-      height: 0,
-      maxScale: 1
-    }
-    touches: TouchList | [] = []
-    rafId: number = 0
-
-    get imgList() {
-      if (isArray(this.imgs)) {
-        return this.imgs
-          .map((img) => {
-            if (typeof img === 'string') {
-              return { src: img }
-            } else if (isImg(img)) {
-              return img
-            }
-            return undefined
-          })
-          .filter(notEmpty)
-      }
-      if (isString(this.imgs)) {
-        return [{ src: this.imgs }]
-      }
-      return []
-    }
-    get visibleImgSrc() {
-      const src = this.imgList[this.imgIndex]?.src
-      return src
-    }
-    get imgTitle() {
-      return this.imgList[this.imgIndex]?.title
-    }
-    get imgAlt() {
-      return this.imgList[this.imgIndex]?.alt || ''
-    }
-    get imgTotal() {
-      return this.imgList.length || 0
-    }
-    get imgWrapperStyle() {
-      const {
-        scale,
-        top,
-        left,
-        rotateDeg,
-        moveDisabled,
-        loadError,
-        isDraging,
-        isGesturing
-      } = this
-      return {
-        transform: `translate(-50%, -50%) scale(${scale}) rotate(${rotateDeg}deg)`,
-        top: `calc(50% + ${top}px)`,
-        left: `calc(50% + ${left}px)`,
-        cursor: moveDisabled || loadError ? 'default' : 'move',
-        transition: isDraging || isGesturing ? 'none' : ''
-      }
-    }
-
-    checkMoveable(button: number = 0) {
-      if (this.moveDisabled) return false
-
-      // mouse left btn click
-      return button === 0
-    }
-
-    // mouse events handler
-    handleMouseDown(e: MouseEvent) {
-      if (!this.checkMoveable(e.button)) return
-      this.lastX = e.clientX
-      this.lastY = e.clientY
-      this.isDraging = true
-      e.stopPropagation()
-    }
-    handleMouseUp(e: MouseEvent) {
-      if (!this.checkMoveable(e.button)) return
-      cancelAnimationFrame(this.rafId)
-      this.isDraging = false
-      this.isTicking = false
-    }
-    handleMouseMove(e: MouseEvent) {
-      if (!this.checkMoveable(e.button)) return
-      if (this.isDraging && !this.isTicking) {
-        this.isTicking = true
-        this.rafId = requestAnimationFrame(() => {
-          this.top = this.top - this.lastY + e.clientY
-          this.left = this.left - this.lastX + e.clientX
-          this.lastX = e.clientX
-          this.lastY = e.clientY
-          this.isTicking = false
-        })
-      }
-      e.stopPropagation()
-    }
-
-    // touch events handler
-    handleTouchStart(e: TouchEvent) {
-      const { touches } = e
-      if (touches.length > 1) {
-        this.isGesturing = true
-        this.touches = touches
-      } else {
-        this.lastX = touches[0].clientX
-        this.lastY = touches[0].clientY
-        this.isDraging = true
-      }
-      e.stopPropagation()
-    }
-    handleTouchMove(e: TouchEvent) {
-      if (this.isTicking) return
-      const { touches } = e
-      if (this.checkMoveable() && !this.isGesturing && this.isDraging) {
-        this.isTicking = true
-        this.rafId = requestAnimationFrame(() => {
-          if (!touches[0]) return
-          const lastX = touches[0].clientX
-          const lastY = touches[0].clientY
-          this.top = this.top - this.lastY + lastY
-          this.left = this.left - this.lastX + lastX
-          this.lastX = lastX
-          this.lastY = lastY
-          this.isTicking = false
-        })
-      } else if (
-        this.isGesturing &&
-        this.touches.length > 1 &&
-        touches.length > 1
-      ) {
-        this.isTicking = true
-        this.rafId = requestAnimationFrame(() => {
-          const scale =
-            (this.getDistance(this.touches[0], this.touches[1]) -
-              this.getDistance(touches[0], touches[1])) /
-            this.imgBaseInfo.width
-          this.touches = touches
-          const newScale = this.scale - scale * 1.3
-          if (newScale > 0.5 && newScale < this.imgBaseInfo.maxScale * 1.5) {
-            this.scale = newScale
+  get imgList() {
+    if (isArray(this.imgs)) {
+      return this.imgs
+        .map((img) => {
+          if (typeof img === 'string') {
+            return { src: img }
+          } else if (isImg(img)) {
+            return img
           }
-          this.isTicking = false
+          return undefined
         })
-      }
+        .filter(notEmpty)
     }
-    handleTouchEnd(e: TouchEvent) {
-      cancelAnimationFrame(this.rafId)
-      this.isDraging = false
-      this.isGesturing = false
-      this.isTicking = false
+    if (isString(this.imgs)) {
+      return [{ src: this.imgs }]
     }
-    handleDragStart(e: DragEvent) {
-      e.preventDefault()
-    }
-    onWheel(e: WheelEvent) {
-      if (
-        this.loadError ||
-        this.loading ||
-        this.isDraging ||
-        this.isGesturing ||
-        this.wheeling ||
-        !this.scrollDisabled
-      ) {
-        return
-      }
+    return []
+  }
 
-      this.wheeling = true
+  get visibleImgSrc() {
+    const src = this.imgList[this.imgIndex]?.src
+    return src
+  }
 
-      setTimeout(() => {
-        this.wheeling = false
-      }, 80)
+  get imgTitle() {
+    return this.imgList[this.imgIndex]?.title
+  }
 
-      if (e.deltaY < 0) {
-        this.zoomIn()
-      } else {
-        this.zoomOut()
-      }
-    }
+  get imgAlt() {
+    return this.imgList[this.imgIndex]?.alt || ''
+  }
 
-    // key press events handler
-    handleKeyPress(e: KeyboardEvent) {
-      if (!this.escDisabled && e.key === 'Escape' && this.visible) {
-        this.closeDialog()
-      }
-      if (e.key === 'ArrowLeft') {
-        this.onPrevClick()
-      }
-      if (e.key === 'ArrowRight') {
-        this.onNextClick()
-      }
-    }
+  get imgTotal() {
+    return this.imgList.length || 0
+  }
 
-    // window resize
-    handleWindowResize(e: UIEvent) {
-      this.getImgSize()
+  get imgWrapperStyle() {
+    const {
+      scale,
+      top,
+      left,
+      rotateDeg,
+      moveDisabled,
+      loadError,
+      isDraging,
+      isGesturing
+    } = this
+    return {
+      transform: `translate(-50%, -50%) scale(${scale}) rotate(${rotateDeg}deg)`,
+      top: `calc(50% + ${top}px)`,
+      left: `calc(50% + ${left}px)`,
+      cursor: moveDisabled || loadError ? 'default' : 'move',
+      transition: isDraging || isGesturing ? 'none' : ''
     }
+  }
 
-    // load event handler
-    handleTestImgLoad(e: Event) {
-      this.loading = false
-    }
-    handleRealImgLoad(e: Event) {
-      this.getImgSize()
-    }
-    handleImgError(e: Event) {
-      this.loading = false
-      this.loadError = true
-      this.$emit('on-error', e)
-    }
+  checkMoveable(button: number = 0) {
+    if (this.moveDisabled) return false
 
-    // common methods
-    getImgSize() {
-      const imgElement = this.$refs.realImg as HTMLImageElement | undefined
-      if (imgElement) {
-        const { width, height, naturalWidth } = imgElement
-        this.imgBaseInfo.maxScale = naturalWidth / width
-        this.imgBaseInfo.width = width
-        this.imgBaseInfo.height = height
-      }
-    }
-    getDistance(p1: Touch, p2: Touch) {
-      const x = p1.clientX - p2.clientX
-      const y = p1.clientY - p2.clientY
-      return Math.sqrt(x * x + y * y)
-    }
+    // mouse left btn click
+    return button === 0
+  }
 
-    // action handler
-    zoom(newScale: number) {
-      if (Math.abs(1 - newScale) < 0.05) {
-        newScale = 1
-      } else if (Math.abs(this.imgBaseInfo.maxScale - newScale) < 0.05) {
-        newScale = this.imgBaseInfo.maxScale
-      }
-      this.lastScale = this.scale
-      this.scale = newScale
-    }
-    zoomIn() {
-      const newScale = this.scale + 0.12
-      if (newScale < this.imgBaseInfo.maxScale * 3) {
-        this.zoom(newScale)
-      }
-    }
-    zoomOut() {
-      const newScale = this.scale - (this.scale < 0.7 ? 0.1 : 0.12)
-      if (newScale > 0.1) {
-        this.zoom(newScale)
-      }
-    }
-    rotateLeft() {
-      this.rotateDeg -= 90
-    }
-    rotateRight() {
-      this.rotateDeg += 90
-    }
-    handleDblClick() {
-      if (this.scale !== this.imgBaseInfo.maxScale) {
-        this.lastScale = this.scale
-        this.scale = this.imgBaseInfo.maxScale
-      } else {
-        this.scale = this.lastScale
-      }
-    }
-    resize() {
-      this.scale = 1
-      this.top = 0
-      this.left = 0
-    }
+  // mouse events handler
+  handleMouseDown(e: MouseEvent) {
+    if (!this.checkMoveable(e.button)) return
+    this.lastX = e.clientX
+    this.lastY = e.clientY
+    this.isDraging = true
+    e.stopPropagation()
+  }
 
-    onNextClick() {
-      const oldIndex = this.imgIndex
-      const newIndex = this.loop
-        ? (oldIndex + 1) % this.imgList.length
-        : oldIndex + 1
+  handleMouseUp(e: MouseEvent) {
+    if (!this.checkMoveable(e.button)) return
+    cancelAnimationFrame(this.rafId)
+    this.isDraging = false
+    this.isTicking = false
+  }
 
-      if (!this.loop && newIndex > this.imgList.length - 1) return
-
-      this.setIndex(newIndex, ['on-next-click', 'on-next'])
+  handleMouseMove(e: MouseEvent) {
+    if (!this.checkMoveable(e.button)) return
+    if (this.isDraging && !this.isTicking) {
+      this.isTicking = true
+      this.rafId = requestAnimationFrame(() => {
+        this.top = this.top - this.lastY + e.clientY
+        this.left = this.left - this.lastX + e.clientX
+        this.lastX = e.clientX
+        this.lastY = e.clientY
+        this.isTicking = false
+      })
     }
+    e.stopPropagation()
+  }
 
-    onPrevClick() {
-      const oldIndex = this.imgIndex
-      let newIndex = oldIndex - 1
-
-      if (oldIndex === 0) {
-        if (!this.loop) return
-        newIndex = this.imgList.length - 1
-      }
-
-      this.setIndex(newIndex, ['on-prev-click', 'on-prev'])
+  // touch events handler
+  handleTouchStart(e: TouchEvent) {
+    const { touches } = e
+    if (touches.length > 1) {
+      this.isGesturing = true
+      this.touches = touches
+    } else {
+      this.lastX = touches[0].clientX
+      this.lastY = touches[0].clientY
+      this.isDraging = true
     }
+    e.stopPropagation()
+  }
 
-    setIndex(newIndex: number, actions?: IndexChangeActions) {
-      const oldIndex = this.imgIndex
-      // reset style
-      this.reset()
-      // setIndex
-      this.imgIndex = newIndex
-
-      // handle same url
-      if (this.imgList[this.imgIndex] === this.imgList[newIndex]) {
-        this.$nextTick(() => {
-          this.loading = false
-        })
-      }
-
-      // No emit event when hidden or same index
-      if (!this.visible || oldIndex === newIndex) return
-      if (actions) {
-        if (isArray(actions)) {
-          actions.forEach((action) => {
-            this.$emit(action, oldIndex, newIndex)
-          })
-        } else {
-          this.$emit(actions, oldIndex, newIndex)
+  handleTouchMove(e: TouchEvent) {
+    if (this.isTicking) return
+    const { touches } = e
+    if (this.checkMoveable() && !this.isGesturing && this.isDraging) {
+      this.isTicking = true
+      this.rafId = requestAnimationFrame(() => {
+        if (!touches[0]) return
+        const lastX = touches[0].clientX
+        const lastY = touches[0].clientY
+        this.top = this.top - this.lastY + lastY
+        this.left = this.left - this.lastX + lastX
+        this.lastX = lastX
+        this.lastY = lastY
+        this.isTicking = false
+      })
+    } else if (
+      this.isGesturing &&
+      this.touches.length > 1 &&
+      touches.length > 1
+    ) {
+      this.isTicking = true
+      this.rafId = requestAnimationFrame(() => {
+        const scale =
+          (this.getDistance(this.touches[0], this.touches[1]) -
+            this.getDistance(touches[0], touches[1])) /
+          this.imgBaseInfo.width
+        this.touches = touches
+        const newScale = this.scale - scale * 1.3
+        if (newScale > 0.5 && newScale < this.imgBaseInfo.maxScale * 1.5) {
+          this.scale = newScale
         }
-      }
-      this.$emit('on-index-change', oldIndex, newIndex)
+        this.isTicking = false
+      })
+    }
+  }
+
+  handleTouchEnd(e: TouchEvent) {
+    cancelAnimationFrame(this.rafId)
+    this.isDraging = false
+    this.isGesturing = false
+    this.isTicking = false
+  }
+
+  handleDragStart(e: DragEvent) {
+    e.preventDefault()
+  }
+
+  onWheel(e: WheelEvent) {
+    if (
+      this.loadError ||
+      this.loading ||
+      this.isDraging ||
+      this.isGesturing ||
+      this.wheeling ||
+      !this.scrollDisabled
+    ) {
+      return
     }
 
-    closeDialog() {
+    this.wheeling = true
+
+    setTimeout(() => {
+      this.wheeling = false
+    }, 80)
+
+    if (e.deltaY < 0) {
+      this.zoomIn()
+    } else {
+      this.zoomOut()
+    }
+  }
+
+  // key press events handler
+  handleKeyPress(e: KeyboardEvent) {
+    if (!this.escDisabled && e.key === 'Escape' && this.visible) {
+      this.closeDialog()
+    }
+    if (e.key === 'ArrowLeft') {
+      this.onPrevClick()
+    }
+    if (e.key === 'ArrowRight') {
+      this.onNextClick()
+    }
+  }
+
+  // window resize
+  handleWindowResize(e: UIEvent) {
+    this.getImgSize()
+  }
+
+  // load event handler
+  handleTestImgLoad(e: Event) {
+    this.loading = false
+  }
+
+  handleRealImgLoad(e: Event) {
+    this.getImgSize()
+    this.setBtnsWrapperSize()
+  }
+
+  setBtnsWrapperSize() {
+    const btnsWrapper = this.$refs.btnsWrapper as HTMLDivElement | undefined
+    const btnClose = this.$refs.btn__close as HTMLDivElement | undefined
+    const btnNext = this.$refs.btn__next as HTMLDivElement | undefined
+    const btnPrev = this.$refs.btn__prev as HTMLDivElement | undefined
+    if (btnsWrapper && btnClose && btnNext && btnPrev) {
+      btnsWrapper.style.position = 'fixed'
+      btnsWrapper.style.width = this.imgBaseInfo.rect.width + 'px'
+      btnsWrapper.style.height = this.imgBaseInfo.rect.height + 'px'
+      btnsWrapper.style.top = this.imgBaseInfo.rect.top + 'px'
+      btnsWrapper.style.left = this.imgBaseInfo.rect.left + 'px'
+    }
+  }
+
+  handleImgError(e: Event) {
+    this.loading = false
+    this.loadError = true
+    this.$emit('on-error', e)
+  }
+
+  // common methods
+  getImgSize() {
+    const imgElement = this.$refs.realImg as HTMLImageElement | undefined
+    if (imgElement) {
+      const rect = imgElement.getBoundingClientRect()
+      const {
+        width,
+        height,
+        naturalWidth
+      } = imgElement
+      this.imgBaseInfo.maxScale = naturalWidth / width
+      this.imgBaseInfo.width = width
+      this.imgBaseInfo.height = height
+      this.imgBaseInfo.rect = rect
+    }
+  }
+
+  getDistance(p1: Touch, p2: Touch) {
+    const x = p1.clientX - p2.clientX
+    const y = p1.clientY - p2.clientY
+    return Math.sqrt(x * x + y * y)
+  }
+
+  // action handler
+  zoom(newScale: number) {
+    if (Math.abs(1 - newScale) < 0.05) {
+      newScale = 1
+    } else if (Math.abs(this.imgBaseInfo.maxScale - newScale) < 0.05) {
+      newScale = this.imgBaseInfo.maxScale
+    }
+    this.lastScale = this.scale
+    this.scale = newScale
+  }
+
+  zoomIn() {
+    const newScale = this.scale + 0.12
+    if (newScale < this.imgBaseInfo.maxScale * 3) {
+      this.zoom(newScale)
+    }
+  }
+
+  zoomOut() {
+    const newScale = this.scale - (this.scale < 0.7 ? 0.1 : 0.12)
+    if (newScale > 0.1) {
+      this.zoom(newScale)
+    }
+  }
+
+  rotateLeft() {
+    this.rotateDeg -= 90
+  }
+
+  rotateRight() {
+    this.rotateDeg += 90
+  }
+
+  handleDblClick() {
+    if (this.scale !== this.imgBaseInfo.maxScale) {
+      this.lastScale = this.scale
+      this.scale = this.imgBaseInfo.maxScale
+    } else {
+      this.scale = this.lastScale
+    }
+  }
+
+  resize() {
+    this.scale = 1
+    this.top = 0
+    this.left = 0
+  }
+
+  onNextClick() {
+    const oldIndex = this.imgIndex
+    const newIndex = this.loop
+      ? (oldIndex + 1) % this.imgList.length
+      : oldIndex + 1
+
+    if (!this.loop && newIndex > this.imgList.length - 1) return
+
+    this.setIndex(newIndex, ['on-next-click', 'on-next'])
+  }
+
+  onPrevClick() {
+    const oldIndex = this.imgIndex
+    let newIndex = oldIndex - 1
+
+    if (oldIndex === 0) {
+      if (!this.loop) return
+      newIndex = this.imgList.length - 1
+    }
+
+    this.setIndex(newIndex, ['on-prev-click', 'on-prev'])
+  }
+
+  setIndex(newIndex: number, actions?: IndexChangeActions) {
+    const oldIndex = this.imgIndex
+    // reset style
+    this.reset()
+    // setIndex
+    this.imgIndex = newIndex
+
+    // handle same url
+    if (this.imgList[this.imgIndex] === this.imgList[newIndex]) {
+      this.$nextTick(() => {
+        this.loading = false
+      })
+    }
+
+    // No emit event when hidden or same index
+    if (!this.visible || oldIndex === newIndex) return
+    if (actions) {
+      if (isArray(actions)) {
+        actions.forEach((action) => {
+          this.$emit(action, oldIndex, newIndex)
+        })
+      } else {
+        this.$emit(actions, oldIndex, newIndex)
+      }
+    }
+    this.$emit('on-index-change', oldIndex, newIndex)
+  }
+
+  closeDialog() {
+    this.$emit('hide')
+  }
+
+  onMaskClick() {
+    if (this.maskClosable) {
       this.$emit('hide')
     }
+  }
 
-    onMaskClick() {
-      if (this.maskClosable) {
-        this.$emit('hide')
-      }
+  // reset
+  reset() {
+    this.scale = 1
+    this.rotateDeg = 0
+    this.top = 0
+    this.left = 0
+    this.isDraging = false
+    this.loading = true
+    this.loadError = false
+  }
+
+  init() {
+    this.reset()
+
+    const length = this.imgList.length
+
+    if (length === 0) {
+      this.imgIndex = 0
+      this.loading = false
+      this.$nextTick(() => {
+        this.loadError = true
+      })
+      return
     }
+    this.imgIndex =
+      this.index >= length ? length - 1 : this.index < 0 ? 0 : this.index
+  }
 
-    // reset
-    reset() {
-      this.scale = 1
-      this.rotateDeg = 0
-      this.top = 0
-      this.left = 0
-      this.isDraging = false
-      this.loading = true
-      this.loadError = false
-    }
-    init() {
-      this.reset()
+  // scrolling
+  disableScrolling() {
+    if (!document) return
+    this.lastBodyStyleOverflowY = document.body.style.overflowY
+    document.body.style.overflowY = 'hidden'
+  }
 
-      const length = this.imgList.length
+  enableScrolling() {
+    if (!document) return
+    document.body.style.overflowY = this.lastBodyStyleOverflowY
+  }
 
-      if (length === 0) {
-        this.imgIndex = 0
-        this.loading = false
-        this.$nextTick(() => {
-          this.loadError = true
+  // watch
+  @Watch('visible', { immediate: true })
+  onVisibleChanged(visible: boolean) {
+    if (visible) {
+      this.init()
+      this.$nextTick(() => {
+        on(this.$refs.modal as Element, 'touchmove', (e: Event) => {
+          e.preventDefault()
         })
-        return
-      }
-      this.imgIndex =
-        this.index >= length ? length - 1 : this.index < 0 ? 0 : this.index
-    }
-
-    // scrolling
-    disableScrolling() {
-      if (!document) return
-      this.lastBodyStyleOverflowY = document.body.style.overflowY
-      document.body.style.overflowY = 'hidden'
-    }
-
-   enableScrolling() {
-      if (!document) return
-      document.body.style.overflowY = this.lastBodyStyleOverflowY
-    }
-
-    // watch
-    @Watch('visible', { immediate: true })
-    onVisibleChanged(visible: boolean) {
-      if (visible) {
-        this.init()
-        this.$nextTick(() => {
-          on(this.$refs.modal as Element, 'touchmove', (e: Event) => {
-            e.preventDefault()
-          })
-          if (this.scrollDisabled) {
-            this.disableScrolling()
-          }
-        })
-      } else {
         if (this.scrollDisabled) {
-          this.enableScrolling()
+          this.disableScrolling()
         }
+      })
+    } else {
+      if (this.scrollDisabled) {
+        this.enableScrolling()
       }
-    }
-
-    @Watch('index')
-    onIndexChange(newIndex: number) {
-      if (newIndex < 0 || newIndex >= this.imgList.length) {
-        return
-      }
-      this.setIndex(newIndex)
-    }
-
-    // life cycle
-    mounted() {
-      on(document, 'keydown', this.handleKeyPress)
-      on(window, 'resize', this.handleWindowResize)
-    }
-    beforeDestroy() {
-      off(document, 'keydown', this.handleKeyPress)
-      off(window, 'resize', this.handleWindowResize)
     }
   }
+
+  @Watch('index')
+  onIndexChange(newIndex: number) {
+    if (newIndex < 0 || newIndex >= this.imgList.length) {
+      return
+    }
+    this.setIndex(newIndex)
+  }
+
+  // life cycle
+  mounted() {
+    on(document, 'keydown', this.handleKeyPress)
+    on(window, 'resize', this.handleWindowResize)
+  }
+
+  beforeDestroy() {
+    off(document, 'keydown', this.handleKeyPress)
+    off(window, 'resize', this.handleWindowResize)
+  }
+}
 </script>
 
 <style scoped lang="scss">
-  @import './assets/styles/variables.scss';
+@import './assets/styles/variables.scss';
 
-  .#{$prefix-cls}-fade-enter-active,
-  .#{$prefix-cls}-fade-leave-active {
-    transition: all 0.3s ease;
-  }
-  .#{$prefix-cls}-fade-enter,
-  .#{$prefix-cls}-fade-leave-to {
-    opacity: 0;
-  }
+.#{$prefix-cls}-fade-enter-active,
+.#{$prefix-cls}-fade-leave-active {
+  transition: all 0.3s ease;
+}
 
-  /* container */
-  .#{$prefix-cls}-img-swiper {
-    position: relative;
-    display: block;
-  }
+.#{$prefix-cls}-fade-enter,
+.#{$prefix-cls}-fade-leave-to {
+  opacity: 0;
+}
 
-  .#{$prefix-cls}-modal {
-    z-index: 9998;
-    position: fixed;
-    top: 35%;
-    left: 35%;
-    right: 35%;
-    bottom: 35%;
-    margin: 0;
-    background: rgba(0, 0, 0, 0.5);
-  }
+/* container */
+.#{$prefix-cls}-img-swiper {
+  position: relative;
+  display: block;
+}
 
-  .#{$prefix-cls}-img-wrapper {
+.#{$prefix-cls}-modal {
+  z-index: 9998;
+  position: fixed;
+  top: 35%;
+  left: 35%;
+  right: 35%;
+  bottom: 35%;
+  margin: 0;
+}
+
+.#{$prefix-cls}-img-wrapper {
+  user-select: none;
+  margin: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50% -50%);
+  transition: 0.3s linear;
+  will-change: transform opacity;
+}
+
+.#{$prefix-cls}-img {
+  user-select: none;
+  max-width: 40vw;
+  max-height: 40vh;
+  display: block;
+  position: relative;
+  transition: transform 0.3s ease-in-out;
+  box-shadow: rgba(0, 0, 0, 0.7) 0px 5px 20px 2px;
+  background-color: rgba(0, 0, 0, 0.7);
+
+  @media (max-width: 750px) {
+    max-width: 55vw;
+    max-height: 55vh;
+  }
+}
+
+/* prev/next/close btns */
+.#{$prefix-cls}-btns-wrapper {
+  .btn__prev,
+  .btn__next,
+  .btn__close {
     user-select: none;
-    margin: 0;
     position: absolute;
     top: 50%;
-    left: 50%;
-    transform: translate(-50% -50%);
-    transition: 0.3s linear;
-    will-change: transform opacity;
-  }
+    transform: translateY(-50%);
+    cursor: pointer;
+    opacity: 1;
+    font-size: 32px;
+    color: #fff;
+    transition: 0.15s linear;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
 
-  .#{$prefix-cls}-img {
-    user-select: none;
-    max-width: 40vw;
-    max-height: 40vh;
-    display: block;
-    position: relative;
-    transition: transform 0.3s ease-in-out;
-    box-shadow: rgba(0, 0, 0, 0.7) 0px 5px 20px 2px;
-    background-color: rgba(0, 0, 0, 0.7);
-
-    @media (max-width: 750px) {
-      max-width: 55vw;
-      max-height: 55vh;
-    }
-  }
-
-  /* prev/next/close btns */
-  .#{$prefix-cls}-btns-wrapper {
-    .btn__prev,
-    .btn__next,
-    .btn__close {
-      user-select: none;
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-      cursor: pointer;
+    &:hover {
       opacity: 1;
-      font-size: 32px;
-      color: #fff;
-      transition: 0.15s linear;
-      -webkit-tap-highlight-color: transparent;
-      outline: none;
-
-      &:hover {
-        opacity: 1;
-      }
-      &.disable,
-      &.disable:hover {
-        cursor: default;
-        opacity: 0.2;
-      }
     }
 
+    &.disable,
+    &.disable:hover {
+      cursor: default;
+      opacity: 0.2;
+    }
+  }
+
+  .btn__next {
+    right: 12px;
+  }
+
+  .btn__prev {
+    left: 12px;
+  }
+
+  .btn__close {
+    top: 24px;
+    right: 10px;
+  }
+
+  @media (max-width: 750px) {
+    .btn__next,
+    .btn__prev {
+      font-size: 20px;
+    }
+    .btn__close {
+      font-size: 24px;
+    }
     .btn__next {
-      right: 12px;
+      right: 4px;
     }
     .btn__prev {
-      left: 12px;
-    }
-    .btn__close {
-      top: 24px;
-      right: 10px;
-    }
-
-    @media (max-width: 750px) {
-      .btn__next,
-      .btn__prev {
-        font-size: 20px;
-      }
-      .btn__close {
-        font-size: 24px;
-      }
-      .btn__next {
-        right: 4px;
-      }
-      .btn__prev {
-        left: 4px;
-      }
+      left: 4px;
     }
   }
+}
 </style>

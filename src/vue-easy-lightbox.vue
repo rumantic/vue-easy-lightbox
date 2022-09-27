@@ -67,7 +67,6 @@
           :prev="onPrevClick"
         >
           <div
-            v-if="imgList.length > 1"
             class="btn__prev"
             ref="btn__prev"
             :class="{ disable: !loop && imgIndex <= 0 }"
@@ -82,7 +81,6 @@
           :next="onNextClick"
         >
           <div
-            v-if="imgList.length > 1"
             class="btn__next"
             ref="btn__next"
             :class="{ disable: !loop && imgIndex >= imgList.length - 1 }"
